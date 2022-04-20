@@ -5,30 +5,62 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.function.IntPredicate;
-import java.util.function.Predicate;
-import java.util.stream.Stream;
 
 import com.study.junit.entity.Movie;
 import com.study.junit.entity.Location;
 import com.study.junit.entity.User;
-import com.study.junit.exception.NullMovieException;
-import com.study.junit.exception.NullUserException;
-import com.study.junit.exception.NoMovieStockException;
-import com.study.junit.util.DateUtil;
+import com.study.junit.exception.*;
+import com.study.junit.helper.CalendarHelper;
+import com.study.junit.helper.LoggingHelper;
+import com.study.junit.repository.LocationRepository;
+import lombok.AllArgsConstructor;
 
 import static com.study.junit.util.DateUtil.*;
 
+@AllArgsConstructor
 public class LocationService {
+
+	private LocationRepository locationRepository;
+	private SPCService spcService;
+	private EmailService emailService;
+	private LoggingHelper loggingHelper;
+	private CalendarHelper calendarHelper;
+
+	public void extendLocationTime(Location location, int qttDays){
+		Location newLocation = new Location(
+				location.getUser(), location.getMovies(),
+				calendarHelper.today(),
+				calendarHelper.futureOf(qttDays),
+				extendedLocationPrice(location, qttDays)
+		);
+
+		locationRepository.save(newLocation);
+	}
+
+	private double extendedLocationPrice(Location location, int qttDays){
+		double locationBasePrice = getTotalPrice(location.getMovies());
+		double extendedLocationPrice = location.getPrice() + qttDays * locationBasePrice;
+
+		return extendedLocationPrice;
+	}
+
+	public void notifyDelays(){
+		for (Location location : locationRepository.getPendingLocations()){
+			if (calendarHelper.today().after(location.getLocationDate())) {
+				emailService.notifyDelay(location.getUser());
+			}
+		}
+	}
 	
 	public Location locateMovie(User user, List<Movie> movies){
 		checkIfUserNotNull(user);
 		checkIfMovieNotNull(movies);
 		checkIfMovieIsOnStock(movies);
+		checkIfIsUserNotBlocked(user);
 
 		Location location = buildNewLocation(user, movies);
-
-		//save the location...
-		//TODO add method to save
+		locationRepository.save(location);
+		loggingHelper.infoLocationDone(location);
 
 		return location;
 	}
@@ -50,6 +82,20 @@ public class LocationService {
 
 		if(!movies.stream().mapToInt(Movie::getStock).allMatch(hasStock)) {
 			throw new NoMovieStockException();
+		}
+	}
+
+	private void checkIfIsUserNotBlocked(User user) {
+		try {
+			if (spcService.isBlocked(user)) {
+				throw new UserBlockedException();
+			}
+		}
+		catch (UserBlockedException e){
+			throw e;
+		}
+		catch (Exception e){
+			throw new SPCServiceException(e);
 		}
 	}
 
@@ -76,7 +122,7 @@ public class LocationService {
 	}
 
 	private Date getDevolutionDate(){
-		Date devolution = addDays(new Date(), 1);
+		Date devolution = calendarHelper.futureOf(1);
 
 		if (verifyDayOfWeek(devolution, Calendar.SUNDAY)) {
 			devolution = addDays(devolution, 1);

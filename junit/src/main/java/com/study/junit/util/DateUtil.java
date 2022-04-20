@@ -17,10 +17,6 @@ public class DateUtil {
 		return calendar.getTime();
 	}
 
-	public static Date getFutureDateAddingDays(int days) {
-		return addDays(new Date(), days);
-	}
-
 	public static Date getDate(int day, int month, int year){
 		Calendar calendar = Calendar.getInstance();
 		calendar.set(DAY_OF_MONTH, day);
